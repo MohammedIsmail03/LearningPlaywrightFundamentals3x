@@ -13,7 +13,7 @@ async function multiUserTest() {
     await viewerPage.goto("https://app.vwo.com/login");
     console.log("Viewer: on login page");
 
-
+    
     await adminContext.close();
     await viewerContext.close();
     await browser.close();
