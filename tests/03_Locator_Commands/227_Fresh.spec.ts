@@ -41,7 +41,6 @@ test('tc#1 - Verify that the vwo page is laoded', async({page})=>{
     let error_message = page.locator('#js-notification-box-msg');
 
     await expect(error_message).toContainText("Your email, password, IP address or location did not match");
-
     await page.pause();
 
 
