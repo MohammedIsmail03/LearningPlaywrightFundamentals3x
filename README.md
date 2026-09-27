@@ -133,7 +133,18 @@ LearningPlaywrightFundamentals3x/
 │   ├── 05_Allure_Reporting/
 │   │   ├── 233_Custom_Report_TestWingify.spec.ts  # run against the custom reporter
 │   │   └── 234_Media_Custom_Report.spec.ts        # screenshot + video + trace
-│   └── 06_.. 23_/             # remaining topics, see the curriculum table
+│   ├── 06_Multiple_Element_Filter/
+│   │   ├── 235_ME.spec.ts            # allInnerTexts, then act on a match
+│   │   └── 236_ME.spec.ts            # all() -> Locator[], read href per link
+│   ├── 07_WebTables/
+│   │   ├── 237_TestCase.spec.ts      # row loop, cells via allInnerTexts
+│   │   ├── 238_TestCase.spec.ts      # dynamic XPath + following-sibling
+│   │   ├── 239_TestCase.spec.ts      # filter({ hasText }) on a link list
+│   │   ├── 240_TestCase.spec.ts      # tr:has(td:text()) row selection
+│   │   ├── 241_WebTable_Pagination.spec.ts   # page-by-page search, inline
+│   │   └── 242_WebTable_Pagination.spec.ts   # same search as a helper
+│   └── 08_.. 23_/             # remaining topics, see the curriculum table
+├── template/template.spec.ts  # starting skeleton for a new spec
 ├── ai/                        # RCA + flaky-analysis agents used by the reporter
 ├── utils/CustomReporter.ts    # custom HTML reporter (TTA branded)
 ├── docs/images/               # architecture diagram (png + html source)
@@ -235,6 +246,24 @@ npx tsx tests/01_Basics/218_normal_pw.ts
 npx tsx tests/01_Basics/217_multiple_context.ts
 npx tsx tests/04_Session_Storage/231_SessionStorage.ts   # saves user-session.json
 ```
+
+### Starting a new test
+
+`template/template.spec.ts` is the skeleton every lesson starts from. Copy it, change the title and the URL, and write the body where the `// Code` marker sits:
+
+```ts
+import { test, expect, Locator } from '@playwright/test';
+
+test('Verify the TestCase', async ({ page }) => {
+   await page.goto("https://app.thetestingacademy.com/playwright/multiple_element_filter");
+
+    // Code
+
+   await page.pause();
+});
+```
+
+`page.pause()` opens the Inspector so you can step through and pick locators while writing. Remove it before committing, it halts the run.
 
 Run a file against the custom reporter instead of the configured ones:
 
@@ -736,7 +765,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,    // fail CI if test.only is left behind
   retries: process.env.CI ? 2 : 0, // retry flaky tests on CI only
   workers: process.env.CI ? 1 : undefined,
-  reporter: [["line"], ["allure-playwright"]],   // several reporters at once
+  reporter: [["line"], ["allure-playwright"], ["./utils/CustomReporter.ts"]],
   use: {
     trace: 'on-first-retry',       // record a trace when a test retries
     headless: false                // show the browser locally
@@ -789,7 +818,7 @@ This repo's config runs two reporters:
 reporter: [["line"], ["allure-playwright"]],
 ```
 
-The custom one lives in `utils/CustomReporter.ts` and is opt-in per run:
+All three are configured, so a normal `npx playwright test` produces terminal output, Allure results and the TTA HTML report in one pass. To run *only* the custom one:
 
 ```bash
 npx playwright test tests/05_Allure_Reporting/234_Media_Custom_Report.spec.ts \
@@ -1111,11 +1140,283 @@ test("navigate via the Make Appointment link", async ({ page }) => {
 | `<select>` | `combobox` | `dropdown` |
 | `<h1>` ... `<h6>` | `heading` | `title` |
 
-This is the top of the preference order from section 22. Reach for CSS (section 19) only when no role or label reaches the element, and for XPath (section 20) only when you need text matching or a parent walk.
+This is the top of the preference order from section 26. Reach for CSS (section 19) only when no role or label reaches the element, and for XPath (section 20) only when you need text matching or a parent walk.
 
 ---
 
-## 22. Locator cheat sheet
+## 22. Multiple elements: `all()`, `allInnerTexts()`, `allTextContents()`
+
+**Concept:** A locator that matches many elements can be unpacked three ways, `all()` hands back an array of locators you can act on, while `allInnerTexts()` and `allTextContents()` hand back plain strings in one round trip.
+
+**Why:** Reading thirteen link labels one `textContent()` at a time costs thirteen round trips to the browser; the plural getters do it in one.
+
+**Q&A - why use this?**
+- **Q: When do I reach for `all()`?** A: Only when you need to *do* something per element, click it, read an attribute, assert on it. If you just want the text, the plural getters are one call instead of N.
+- **Q: `allInnerTexts` or `allTextContents`?** A: `allTextContents` returns raw DOM text, so whitespace is exactly as authored, which makes it predictable to compare against. `allInnerTexts` returns what is rendered, collapsed and trimmed, with CSS `text-transform` applied and `<br>` turned into `\n`.
+- **Q: What's the gotcha?** A: None of the three wait. They snapshot whatever is in the DOM at that instant, so on a list that is still loading you silently get a partial answer.
+
+```mermaid
+flowchart TD
+    A["page.locator&#40;'a.list-group-item'&#41;"] --> B{What do you need?}
+    B -->|act on each element| C["all&#40;&#41; -> Locator[]"]
+    B -->|text the user sees| D["allInnerTexts&#40;&#41; -> string[]"]
+    B -->|raw DOM text| E["allTextContents&#40;&#41; -> string[]"]
+    C --> F[click, getAttribute, fill]
+    D --> G[collapsed, CSS applied]
+    E --> H[as authored, faster]
+```
+
+| | `all()` | `allInnerTexts()` | `allTextContents()` |
+|---|---|---|---|
+| Returns | `Locator[]` | `string[]` | `string[]` |
+| Can click / getAttribute | yes | no | no |
+| Whitespace | n/a | collapsed, trimmed | raw |
+| CSS `text-transform` | n/a | applied | ignored |
+| `<br>` | n/a | becomes `\n` | ignored |
+| Waits for elements | no | no | no |
+| Round trips | 1 + N per action | 1 | 1, cheapest |
+
+The same four elements through both getters make the difference concrete:
+
+```
+allTextContents : ["   Alpha\n     line-two   ", "Hidden Beta", "gamma", "DeltaEpsilon"]
+allInnerTexts   : ["Alpha line-two",             "Hidden Beta", "GAMMA", "Delta\nEpsilon"]
+```
+
+**tests/06_Multiple_Element_Filter/235_ME.spec.ts** - read the labels once, then act on a match:
+
+```ts
+const links = page.locator('a.list-group-item');
+const labels: string[] = await links.allInnerTexts();
+
+for (const label of labels) {
+    if (label === "Forgotten Password") {
+        await page.getByText(label).first().click();
+    }
+}
+```
+
+**tests/06_Multiple_Element_Filter/236_ME.spec.ts** - `all()`, because `getAttribute` needs real locators:
+
+```ts
+const links: Locator[] = await page.locator('a.list-group-item').all();
+for (const link of links) {
+    console.log(await link.getAttribute('href'));
+}
+```
+
+**Gate on the count first.** Because none of the three wait, a list that renders late gives a partial result with no error:
+
+```ts
+const links = page.locator('a.list-group-item');
+await expect(links).toHaveCount(13);      // this one retries
+const all = await links.all();            // now it is safe
+```
+
+And when you are asserting rather than logging, skip all three, `toHaveText` accepts an array and auto-retries:
+
+```ts
+await expect(links).toHaveText([/Login/, /Register/]);
+```
+
+---
+
+## 23. Web tables: iterating rows and columns
+
+**Concept:** An HTML table has no table API in Playwright, it is just nested locators, so you read it by locating rows (`tbody tr`) and then cells (`td`) within each row.
+
+**Why:** Table data is dynamic, you rarely know which row holds the record you want, so you scan rows until a cell matches and then read its neighbours.
+
+**Q&A - why use this?**
+- **Q: How do I skip the header row?** A: Prefer scoping to `tbody tr` and using `th` for headers. If the header sits inside `tbody`, start the loop at index 1 rather than 0.
+- **Q: Do I need XPath for tables?** A: Only for one thing, walking sideways. `following-sibling::td` gets the next cell from a matched cell, which CSS cannot express.
+- **Q: What's the gotcha?** A: Building selectors by string concatenation re-queries the DOM on every iteration and is slow and brittle. Chain locators off the row instead, and remember XPath indexes are 1-based while `nth()` is 0-based.
+
+```mermaid
+flowchart TD
+    A["page.locator&#40;'table tbody tr'&#41;"] --> B["count&#40;&#41; -> how many rows"]
+    B --> C[loop rows by index]
+    C --> D["rows.nth&#40;i&#41;.locator&#40;'td'&#41;"]
+    D --> E["allInnerTexts&#40;&#41; -> one row as string[]"]
+    D --> F{cell matches<br/>what you want?}
+    F -->|yes| G["following-sibling::td<br/>read the neighbour"]
+```
+
+**tests/07_WebTables/237_TestCase.spec.ts** - the readable approach, one call per row:
+
+```ts
+const rows = page.locator('table[summary="Sample Table"] tbody tr');
+const rowCount = await rows.count();
+
+for (let i = 0; i < rowCount - 1; i++) {
+    const rowData = await rows.nth(i).locator('td').allInnerTexts();
+    console.log(`Row ${i + 1}:`, rowData);
+}
+```
+
+**tests/07_WebTables/238_TestCase.spec.ts** - find a record, then read the cell beside it with `following-sibling`:
+
+```ts
+const rows = await page.locator("//table[@id='customers']/tbody/tr").count();
+const cols = await page.locator("//table[@id='customers']/tbody/tr[2]/td").count();
+
+for (let i = 2; i <= rows; i++) {            // XPath rows are 1-based, row 1 is the header
+    for (let j = 1; j <= cols; j++) {
+        const cell = `//table[@id='customers']/tbody/tr[${i}]/td[${j}]`;
+        const data = await page.locator(cell).innerText();
+
+        if (data.includes('Helen Bennett')) {
+            const country = await page.locator(`${cell}/following-sibling::td`).innerText();
+            console.log(`Helen Bennett is In - ${country}`);
+        }
+    }
+}
+```
+
+| Approach | Round trips | Readability |
+|---|---|---|
+| `rows.nth(i).locator('td').allInnerTexts()` | 1 per row | high |
+| String-built XPath per cell | 1 per **cell** | low |
+
+The nested-loop version is the one taught in class because it makes the row/column maths explicit, but in a real suite the first form is what you want. The whole scan also collapses into a single chained locator:
+
+```ts
+const country = await page.locator('#customers tbody tr')
+    .filter({ hasText: 'Helen Bennett' })
+    .locator('td')
+    .last()
+    .innerText();
+```
+
+---
+
+## 24. Filtering locators: `filter()`, `:has()`, `hasText`
+
+**Concept:** `.filter()` narrows a locator that matches many elements down to the ones containing given text or a given child, and the CSS pseudo-class `:has()` does the same thing inside the selector string.
+
+**Why:** The element you want to click is usually anonymous (a checkbox, an edit icon) and is only identifiable by the row or card it sits in, so you find the container by its text first, then reach inside it.
+
+**Q&A - why use this?**
+- **Q: When do I reach for it?** A: Any repeated structure, table rows, cards, list items, where the target has no unique attribute of its own but its neighbour has readable text.
+- **Q: `filter({ hasText })` or `:has()`?** A: They are equivalent in power. `filter()` chains and reads left to right, which is easier to debug; `:has()` keeps everything in one selector string, which is handy when you need it inside a single `locator()` call.
+- **Q: What's the gotcha?** A: Both match **substrings**, so `hasText: 'Rohan.Mehta'` also matches `Rohan.Mehta2`. Pass a `RegExp` with anchors, or use `:text-is()` instead of `:text()`, when you need an exact match.
+
+```mermaid
+flowchart TD
+    A["locator&#40;'tr'&#41;<br/>matches every row"] --> B{narrow by what?}
+    B -->|text inside| C["filter&#40;{ hasText: 'Luca' }&#41;"]
+    B -->|a child element| D["filter&#40;{ has: page.locator&#40;'.badge'&#41; }&#41;"]
+    B -->|inside the selector| E["locator&#40;\"tr:has&#40;td:text&#40;'Luca'&#41;&#41;\"&#41;"]
+    C & D & E --> F[one row]
+    F --> G["locator&#40;'input'&#41;.click&#40;&#41;<br/>reach inside it"]
+```
+
+**tests/07_WebTables/239_TestCase.spec.ts** - filter a link list by its label:
+
+```ts
+const forgottenPasswordLink = page.locator('a.list-group-item')
+    .filter({ hasText: 'Forgotten Password' });
+await forgottenPasswordLink.click();
+
+const privacyLink = page.locator('footer a').filter({ hasText: 'Privacy Policy' });
+await expect(privacyLink).toHaveAttribute('href', '#privacy-policy');
+```
+
+**tests/07_WebTables/240_TestCase.spec.ts** - find the row by its name cell, then tick the checkbox in it:
+
+```ts
+await page.locator("tr:has(td:text('Rohan.Mehta'))")
+    .locator('input')
+    .first()
+    .click();
+```
+
+The same row, written with `filter()` instead, and asserted rather than slept on:
+
+```ts
+const checkbox = page.locator('tr')
+    .filter({ hasText: 'Rohan.Mehta' })
+    .locator('input')
+    .first();
+
+await checkbox.check();
+await expect(checkbox).toBeChecked();    // retries, no waitForTimeout needed
+```
+
+| Need | Write |
+|---|---|
+| Row containing text | `.filter({ hasText: 'Luca' })` |
+| Row **not** containing text | `.filter({ hasNotText: 'Luca' })` |
+| Row containing an element | `.filter({ has: page.locator('.badge') })` |
+| Exact text, not substring | `.filter({ hasText: /^Luca Greco$/ })` |
+| All in one selector | `tr:has(td:text-is('Luca Greco'))` |
+
+---
+
+## 25. Paginated tables: searching across pages
+
+**Concept:** When a table splits across pages, the row you want may not be in the DOM at all, so you look on the current page, click next, and look again until you find it or run out of pages.
+
+**Why:** `filter()` only sees what is rendered. On a paginated table it silently returns zero matches for a row that exists on page four, and the test fails with a misleading "not found".
+
+**Q&A - why use this?**
+- **Q: How do I know when to stop?** A: When the next button is disabled. That is the reliable end-of-data signal, far better than hardcoding a page count that changes with the data.
+- **Q: Why `count()` rather than `isVisible()`?** A: `count()` returns 0 immediately for a missing row. `isVisible()` on an empty locator also returns false, but the count reads more clearly as "did this page have it".
+- **Q: What's the gotcha?** A: `while (true)` with no exit is an infinite loop if the next button never disables. Always throw when the button is disabled, and keep the throw *inside* the loop.
+
+```mermaid
+flowchart TD
+    A[Open the table] --> B["filter&#40;{ hasText: name }&#41;"]
+    B --> C{count &gt; 0?}
+    C -->|yes| D[Read the cells]
+    C -->|no| E{next disabled?}
+    E -->|yes| F[throw Row not found]
+    E -->|no| G[click next]
+    G --> B
+```
+
+**tests/07_WebTables/241_WebTable_Pagination.spec.ts** - the loop written inline:
+
+```ts
+let row;
+while (true) {
+    row = page.locator('#employees-tbody tr').filter({ hasText: 'Luca Greco' });
+    if (await row.count()) break;
+
+    const next = page.getByTestId('next-page');
+    if (await next.isDisabled()) throw new Error("Row not found!");
+    await next.click();
+}
+
+const email   = await row.locator('td[data-col="email"]').innerText();
+const country = await row.locator('td[data-col="country"]').innerText();
+```
+
+**tests/07_WebTables/242_WebTable_Pagination.spec.ts** - the same logic lifted into a helper, which is the version to keep:
+
+```ts
+async function findRowByName(page: Page, name: string): Promise<Locator> {
+    while (true) {
+        const row = page.locator('#employees-tbody tr').filter({ hasText: name });
+        if (await row.count()) return row;
+
+        const next = page.getByTestId('next-page');
+        if (await next.isDisabled()) throw new Error(`Row not found: ${name}`);
+        await next.click();
+    }
+}
+
+const row = await findRowByName(page, 'Luca Greco');
+const email = await row.locator('td[data-col="email"]').innerText();
+```
+
+The helper wins on three counts: the test reads as one line of intent, the error message names the row that was missing, and the next test that needs a row does not copy the loop again.
+
+Note `td[data-col="email"]` rather than `td:nth-child(3)`. When the app gives columns a data attribute, use it, a reordered column then changes nothing in the test.
+
+---
+
+## 26. Locator cheat sheet
 
 ```ts
 page.getByRole('button', { name: 'Submit' })   // preferred, accessibility based
@@ -1131,11 +1432,11 @@ page.locator('li').nth(2)
 page.locator('table tr').first()
 ```
 
-Order of preference: role -> label -> placeholder -> text -> testid -> CSS/XPath. Section 21 covers the role end of that list, sections 19 and 20 cover CSS and XPath, for the cases where the user-facing locators cannot reach the element.
+Order of preference: role -> label -> placeholder -> text -> testid -> CSS/XPath. Section 24 covers narrowing a multi-match locator with `filter()`. Section 21 covers the role end of that list, sections 19 and 20 cover CSS and XPath, for the cases where the user-facing locators cannot reach the element.
 
 ---
 
-## 23. Common assertions
+## 27. Common assertions
 
 ```ts
 await expect(page).toHaveTitle(/Playwright/);
@@ -1152,7 +1453,7 @@ All `expect` calls auto-wait, so you rarely need `waitForTimeout`.
 
 ---
 
-## 24. Troubleshooting
+## 28. Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
@@ -1165,7 +1466,7 @@ All `expect` calls auto-wait, so you rarely need `waitForTimeout`.
 
 ---
 
-## 25. Useful links
+## 29. Useful links
 
 - Playwright docs: https://playwright.dev/docs/intro
 - Codegen guide: https://playwright.dev/docs/codegen

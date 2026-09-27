@@ -14,9 +14,11 @@ export interface BuildSummary {
 }
 
 export interface FlakyResult {
-    counts: { flaky: number; failing: number };
-    flakyTests: string[];
-    failingTests: string[];
+    counts: { flaky: number; failing: number; total: number };
+    /** Tests whose pass/fail status flipped between the two builds. */
+    flaky: string[];
+    /** Tests that failed in both builds. */
+    failing: string[];
     summary?: string;
 }
 
@@ -27,23 +29,27 @@ export async function analyzeFlaky(
     curr: BuildSummary,
     _useLlm = false,
 ): Promise<FlakyResult> {
-    const flakyTests: string[] = [];
-    const failingTests: string[] = [];
+    const flaky: string[] = [];
+    const failing: string[] = [];
 
     for (const [title, status] of Object.entries(curr.tests)) {
         const before = prev?.tests[title];
         if (before === undefined) continue;
 
         if (isFail(status) && isFail(before)) {
-            failingTests.push(title);
+            failing.push(title);
         } else if (isFail(status) !== isFail(before)) {
-            flakyTests.push(title);
+            flaky.push(title);
         }
     }
 
     return {
-        counts: { flaky: flakyTests.length, failing: failingTests.length },
-        flakyTests,
-        failingTests,
+        counts: {
+            flaky: flaky.length,
+            failing: failing.length,
+            total: Object.keys(curr.tests).length,
+        },
+        flaky,
+        failing,
     };
 }
