@@ -143,8 +143,42 @@ LearningPlaywrightFundamentals3x/
 │   │   ├── 240_TestCase.spec.ts      # tr:has(td:text()) row selection
 │   │   ├── 241_WebTable_Pagination.spec.ts   # page-by-page search, inline
 │   │   └── 242_WebTable_Pagination.spec.ts   # same search as a helper
-│   └── 08_.. 23_/             # remaining topics, see the curriculum table
+│   ├── 08_Web_Select_Frames_Iframe/
+│   │   ├── 243_Select_TestCase.spec.ts       # native <select> via selectOption
+│   │   ├── 244_CustomDropDown_TestCase.spec.ts     # click-then-pick custom menu
+│   │   └── 245_AdvacneCustomDropDown_TestCase.spec.ts  # searchable, multi, async
+│   ├── 09_Frame_Iframe/
+│   │   ├── 246_Iframe_TestCase.spec.ts       # a form inside one iframe
+│   │   ├── 247_Framework_TestCase.spec.ts    # enumerate frames on a frameset
+│   │   └── 248_Nested_Iframe_TestCase.spec.ts      # three levels of nesting
+│   ├── 10_Keyboard_Hover_Drag_Drop_Calender/
+│   │   ├── 249_TestCase.spec.ts          # keyboard press, modifiers
+│   │   ├── 250_Hover_TestCase.spec.ts    # dragTo with force
+│   │   ├── 251_Drag_Drop.spec.ts         # dragTo, the simple case
+│   │   ├── 252_Advance_Drag_Drop.spec.ts # manual mouse drag with steps
+│   │   └── 253_Context_Drag_Drop.spec.ts # right click and read the menu
+│   ├── 11_JS_Alerts/
+│   │   └── 254_JS_Alerts.spec.ts         # dialog events, on vs once
+│   ├── 12_Handle_SVG/
+│   │   ├── 255_SVG_TestCase.spec.ts      # svg click on a live site
+│   │   ├── 256_SVG_Advance_TC.spec.ts    # shapes, chart bars, ARIA roles
+│   │   ├── 257_SVG_Map_TC.spec.ts        # map paths via namespace-aware XPath
+│   │   └── 258_SVG_Map_TC_Optimized.spec.ts   # same map, CSS path selector
+│   ├── 13_Shadow_DOM/
+│   │   └── 259_Shadow_DOM_TC.spec.ts     # locators pierce open shadow roots
+│   ├── 14_FileUpload/
+│   │   ├── 260_FileUpload_TC.spec.ts     # one file from disk, asserted
+│   │   ├── 261_FileUpload_TC.spec.ts     # single upload on the TTA widget
+│   │   ├── 262_Multiple_FileUpload_TC.spec.ts      # in-memory Buffer files
+│   │   ├── 263_Multiple_FileUpload_Disk_TC.spec.ts # two real jpgs from disk
+│   │   ├── 264_Mixed_FileUpload_TC.spec.ts         # pdf + jpg + doc together
+│   │   ├── 265_FileUpload_OtherDir_TC.spec.ts      # fixtures in test-data/
+│   │   └── *.jpg, *.pdf, *.doc           # upload fixtures
+│   └── 15_File_Download/
+│       └── 266_FileDownload_TC.spec.ts   # waitForEvent before the click
+
 ├── template/template.spec.ts  # starting skeleton for a new spec
+├── test-data/uploads/         # shared upload fixtures (see section 32)
 ├── ai/                        # RCA + flaky-analysis agents used by the reporter
 ├── utils/CustomReporter.ts    # custom HTML reporter (TTA branded)
 ├── docs/images/               # architecture diagram (png + html source)
@@ -1140,7 +1174,7 @@ test("navigate via the Make Appointment link", async ({ page }) => {
 | `<select>` | `combobox` | `dropdown` |
 | `<h1>` ... `<h6>` | `heading` | `title` |
 
-This is the top of the preference order from section 26. Reach for CSS (section 19) only when no role or label reaches the element, and for XPath (section 20) only when you need text matching or a parent walk.
+This is the top of the preference order from section 34. Reach for CSS (section 19) only when no role or label reaches the element, and for XPath (section 20) only when you need text matching or a parent walk.
 
 ---
 
@@ -1416,7 +1450,567 @@ Note `td[data-col="email"]` rather than `td:nth-child(3)`. When the app gives co
 
 ---
 
-## 26. Locator cheat sheet
+## 26. Dropdowns: native `<select>` versus custom widgets
+
+**Concept:** A native `<select>` is one element the browser owns, driven with `selectOption()`. A "custom dropdown" is a div pretending to be one, so it needs a click to open and a second click on the option.
+
+**Why:** Reaching for `selectOption()` on a React or Vue dropdown fails with "element is not a select", and clicking blindly at a `<select>` opens an OS-level menu Playwright cannot see into.
+
+**Q&A - why use this?**
+- **Q: How do I tell them apart?** A: Inspect the tag. A real `<option>` inside a `<select>` takes `selectOption()`. Anything else, `div[role=option]` or a styled `li`, is custom and needs click-then-click.
+- **Q: What can `selectOption()` match on?** A: Visible label, `value`, or index, and it takes an array for multi-selects. `selectOption(['a','b'])` picks two at once.
+- **Q: What's the gotcha?** A: Custom menus render in a portal at the end of `<body>`, not inside the trigger, so scoping your option locator to the trigger finds nothing. Locate the option from `page`, not from the trigger.
+
+```mermaid
+flowchart TD
+    A[A dropdown] --> B{Is the tag<br/>a real select?}
+    B -->|yes| C["selectOption&#40;'Option 2'&#41;<br/>one call, no click"]
+    B -->|no, div or li| D["click the trigger"]
+    D --> E["getByRole&#40;'option', { name }&#41;<br/>click the option"]
+    E --> F{menu stays open?<br/>multi-select}
+    F -->|yes| G["keyboard.press&#40;'Escape'&#41;"]
+```
+
+**tests/08_Web_Select_Frames_Iframe/243_Select_TestCase.spec.ts** - the native case, one call:
+
+```ts
+await page.goto("https://the-internet.herokuapp.com/dropdown");
+await page.selectOption("#dropdown", "Option 2");
+```
+
+`selectOption` fires the `change` event itself, so the preceding `click()` is not needed. Three ways to name the same option:
+
+```ts
+await page.selectOption("#dropdown", "Option 2");            // by visible label
+await page.selectOption("#dropdown", { value: "2" });        // by value attribute
+await page.selectOption("#dropdown", { index: 2 });          // by position
+await page.selectOption("#langs", ["JS", "TS"]);             // multi-select
+```
+
+**tests/08_Web_Select_Frames_Iframe/244_CustomDropDown_TestCase.spec.ts** - click to open, then pick by role:
+
+```ts
+await page.getByTestId('lang-trigger').click();
+await page.getByRole("option", { name: "JavaScript" }).click();
+
+await page.getByTestId('experience-trigger').click();
+await page.getByText("Mid-level (4-6 years)", { exact: true }).click();
+```
+
+**tests/08_Web_Select_Frames_Iframe/245_AdvacneCustomDropDown_TestCase.spec.ts** - the react-select family, four behaviours in one file:
+
+```ts
+// multi-select: the menu stays open, so Escape closes it
+await page.locator("#rs-multi").click();
+await page.getByText("Pytest", { exact: true }).click();
+await page.getByText("JUnit",  { exact: true }).click();
+await page.keyboard.press("Escape");
+
+// async: options are fetched after you type, so assert the menu before clicking
+await page.locator("#rs-async").click();
+await page.getByTestId('rs-async-input').fill('de');
+await expect(page.getByTestId('rs-async-menu')).toContainText('Delhi');
+await page.getByRole('option', { name: "Delhi", exact: true }).click();
+```
+
+That `expect(...).toContainText(...)` before the click is the important line. It retries until the fetch lands, which is what makes an async dropdown testable instead of flaky.
+
+| Dropdown | Open it? | Pick with |
+|---|:---:|---|
+| Native `<select>` | no | `selectOption()` |
+| Custom (div / li) | yes | `getByRole('option')` then click |
+| Multi custom | yes | click each, then `Escape` |
+| Async custom | yes | `expect(menu).toContainText()` first |
+
+---
+
+## 27. Frames and iframes: `frameLocator()`
+
+**Concept:** An iframe is a separate document embedded in the page, so `page.locator()` cannot see inside it. `page.frameLocator('#id')` returns a handle scoped to that document, and you chain locators off it.
+
+**Why:** Payment forms, embedded editors and legacy widgets all live in iframes, and without `frameLocator` every selector inside them times out as "not found" even though you can see the element.
+
+**Q&A - why use this?**
+- **Q: When do I reach for it?** A: The moment a selector that looks obviously right times out. Check the DOM for an `<iframe>` or `<frame>` wrapping your target.
+- **Q: How do I reach a frame inside a frame?** A: Chain it. `page.frameLocator('#outer').frameLocator('#inner')`, each call scopes into one more level.
+- **Q: What's the gotcha?** A: `frameLocator()` is **not** async. It returns a handle immediately, so `await page.frameLocator(...)` does nothing useful and misleads the next reader. Drop the `await`.
+
+```mermaid
+flowchart TD
+    A[page] -->|"locator&#40;&#41; cannot cross"| B[iframe boundary]
+    A --> C["frameLocator&#40;'#pact1'&#41;"]
+    C --> D[frame 1 document]
+    D --> E["frameLocator&#40;'#pact2'&#41;"]
+    E --> F[frame 2 document]
+    F --> G["frameLocator&#40;'#pact3'&#41;"]
+    G --> H["locator&#40;'#glaf'&#41;.fill&#40;&#41;"]
+```
+
+**tests/09_Frame_Iframe/246_Iframe_TestCase.spec.ts** - fill a form living inside one frame:
+
+```ts
+await page.goto('https://app.thetestingacademy.com/playwright/frames/');
+const vehicleFrame: FrameLocator = page.frameLocator("#frame-one");
+
+await vehicleFrame.locator('#RESULT_TextField-1').fill('Hyundai i10');
+await vehicleFrame.locator('#RESULT_TextField-2').fill('Pramod Dutta');
+await vehicleFrame.getByText('Submit registration', { exact: true }).click();
+
+const output = await vehicleFrame.locator("#vehicle-output").innerText();
+```
+
+**tests/09_Frame_Iframe/247_Framework_TestCase.spec.ts** - enumerate the frames on a frameset page before working in one:
+
+```ts
+const allFrames: Locator[] = await page.locator('//frame').all();
+console.log('total number of frames: ' + allFrames.length);
+
+for (const frame of allFrames) {
+    console.log(await frame.getAttribute('name'), ': ', await frame.getAttribute('src'));
+}
+
+const sideFrame = page.frameLocator('[name="side"]');
+await sideFrame.getByTestId('side-link-registration').click();
+```
+
+**tests/09_Frame_Iframe/248_Nested_Iframe_TestCase.spec.ts** - three levels deep, each chained off the last:
+
+```ts
+const frame1 = page.frameLocator('#pact1');
+const frame2 = frame1.frameLocator('#pact2');
+const frame3 = frame2.frameLocator('#pact3');
+
+await frame1.locator('#inp_val').fill('Aishwarya Rai');
+await frame2.locator('#jex').fill('Wife');
+await frame3.locator('#glaf').fill('Playwright');
+```
+
+| Need | Use |
+|---|---|
+| Elements inside one iframe | `page.frameLocator('#id')` |
+| Nested iframes | chain `frameLocator()` per level |
+| List the frames on the page | `page.locator('//frame').all()` or `page.frames()` |
+| The frame's own URL or name | `frame.getAttribute('src' \| 'name')` |
+
+`frameLocator` is lazy in the same way an ordinary locator is: nothing is resolved until you act on it, so it auto-waits for the frame to exist. That is why there is no need to wait for the iframe to load first.
+
+---
+
+## 28. Keyboard, mouse, drag and drop, right click
+
+**Concept:** Beyond `click()` and `fill()`, Playwright exposes raw input devices: `page.keyboard` for key events, `page.mouse` for coordinate-level movement, and `locator.dragTo()` for the common drag case.
+
+**Why:** HTML5 drag-and-drop, canvas widgets and context menus do not respond to a plain click, they need real pointer sequences or key events the browser treats as genuine user input.
+
+**Q&A - why use this?**
+- **Q: `dragTo()` or the mouse?** A: Try `dragTo()` first, it is one line. Drop to `page.mouse` when the widget tracks intermediate movement, like a Kanban board that reorders as you hover.
+- **Q: Why does a manual drag need `steps`?** A: A single jump from source to target fires no `dragover` in between. `{ steps: 10 }` interpolates the movement so the drop zone actually registers it.
+- **Q: What's the gotcha?** A: `press('Shift+O')` already handles the modifier for you. Calling `keyboard.down('Shift')` without a matching `up()` leaves Shift stuck down for the rest of the test.
+
+```mermaid
+flowchart TD
+    A[Need an interaction] --> B{What kind?}
+    B -->|type or shortcut| C["keyboard.press&#40;'Shift+O'&#41;"]
+    B -->|simple drag| D["locator.dragTo&#40;target&#41;"]
+    B -->|drag with tracking| E["mouse.move -> down -><br/>move&#40;{steps}&#41; -> up"]
+    B -->|right click| F["click&#40;{ button: 'right' }&#41;"]
+    D -->|does not work?| E
+```
+
+**tests/10_Keyboard_Hover_Drag_Drop_Calender/249_TestCase.spec.ts** - key presses and modifiers:
+
+```ts
+await page.goto("https://keycode.info");
+
+await page.keyboard.press('A');
+await page.keyboard.press('ArrowLeft');
+await page.keyboard.press('Shift+O');     // modifier handled for you
+
+await page.keyboard.down('Shift');        // held down
+await page.keyboard.up('Shift');          // always pair it
+```
+
+**tests/10_Keyboard_Hover_Drag_Drop_Calender/251_Drag_Drop.spec.ts** - the one-liner that covers most cases:
+
+```ts
+await page.goto('https://the-internet.herokuapp.com/drag_and_drop');
+await page.locator('#column-a').dragTo(page.locator('#column-b'));
+```
+
+**tests/10_Keyboard_Hover_Drag_Drop_Calender/252_Advance_Drag_Drop.spec.ts** - a Kanban card, where the board needs the intermediate movement:
+
+```ts
+const source = page.locator('#card-write-spec');
+const target = page.locator('[data-status="in-progress"]');
+const sBox = (await source.boundingBox())!;
+const tBox = (await target.boundingBox())!;
+
+await page.mouse.move(sBox.x + sBox.width / 2, sBox.y + sBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(tBox.x + tBox.width / 2, tBox.y + tBox.height / 2, { steps: 10 });
+await page.mouse.up();
+```
+
+**tests/10_Keyboard_Hover_Drag_Drop_Calender/253_Context_Drag_Drop.spec.ts** - right click, then read the menu that appears:
+
+```ts
+await page.locator('span.context-menu-one').first().click({ button: 'right' });
+
+const options: string[] = await page.locator('ul.context-menu-list span').allInnerTexts();
+console.log(options);
+
+await page.getByText('Copy', { exact: true }).first().click();
+```
+
+| Action | API |
+|---|---|
+| Type a key or shortcut | `keyboard.press('Control+A')` |
+| Type a whole string | `keyboard.type('hello')` or `fill()` |
+| Hold a modifier | `keyboard.down()` / `.up()` in pairs |
+| Simple drag | `locator.dragTo(target)` |
+| Drag with tracking | `mouse.move` / `down` / `move({steps})` / `up` |
+| Right click | `click({ button: 'right' })` |
+| Double click | `dblclick()` |
+| Hover | `hover()` |
+
+`boundingBox()` returns `null` for an element that is not rendered, which is why the examples use `!`. In a real test, assert the element is visible first rather than asserting the non-null.
+
+---
+
+## 29. JavaScript dialogs: `page.on` versus `page.once`
+
+**Concept:** `alert`, `confirm` and `prompt` open a native dialog that blocks the page. Playwright surfaces it as a `dialog` event you subscribe to, with `page.on` to handle every occurrence or `page.once` to handle only the first.
+
+**Why:** A dialog cannot be clicked like a normal element, it is browser chrome rather than DOM, so the only way to accept or dismiss it is through the event.
+
+**Q&A - why use this?**
+- **Q: `on` or `once`?** A: `once` when the action raises exactly one dialog, which is the usual case. `on` when several will fire, or when you are logging every dialog across a whole test.
+- **Q: What happens if I never subscribe?** A: Playwright auto-dismisses the dialog so your test does not hang. Register a listener and that safety net turns off, you now own accepting or dismissing it.
+- **Q: What's the gotcha?** A: Register the listener **before** the click that triggers the dialog. Attaching it afterwards is a race the dialog usually wins.
+
+```mermaid
+flowchart TD
+    A[Action fires a dialog] --> B{Listener registered?}
+    B -->|no| C[Playwright auto-dismisses]
+    B -->|"page.once"| D[Handler runs once,<br/>then removes itself]
+    B -->|"page.on"| E[Handler runs every time,<br/>stays registered]
+    D --> F["dialog.accept&#40;&#41; or .dismiss&#40;&#41;"]
+    E --> F
+    E -.->|forgot to accept| G[Page hangs until timeout]
+```
+
+| | `page.on('dialog', fn)` | `page.once('dialog', fn)` |
+|---|---|---|
+| Fires | every dialog | the first one only |
+| After firing | stays registered | removes itself |
+| Across 3 dialogs | runs 3 times | runs 1 time |
+| Remove it | `page.off('dialog', fn)` | automatic |
+| Use for | logging, repeated dialogs | one expected dialog |
+
+**tests/11_JS_Alerts/254_JS_Alerts.spec.ts** - the pattern, with the listener attached first:
+
+```ts
+test('JS Alert accept', async ({ page }) => {
+    await page.goto('https://the-internet.herokuapp.com/javascript_alerts');
+
+    let message = '';
+    page.once('dialog', async dialog => {
+        console.log('Alert type:', dialog.type());     // alert | confirm | prompt
+        message = dialog.message();
+        await dialog.accept();
+    });
+
+    await page.getByRole('button', { name: "Click for JS Alert" }).click();
+
+    expect(message).toBe('I am a JS Alert');
+    await expect(page.locator('#result')).toHaveText('You successfully clicked an alert');
+});
+```
+
+**Two rules worth repeating in class.** First, the listener goes before the click, not after, otherwise the dialog can open before anything is listening. Second, assert *outside* the handler. An `expect()` that throws inside the callback becomes an unhandled rejection rather than a test failure, so the test can pass while the assertion silently failed. Capture the message into a variable and assert on it after the click.
+
+The dialog object carries everything you need:
+
+```ts
+dialog.type()         // 'alert' | 'confirm' | 'prompt' | 'beforeunload'
+dialog.message()      // the text shown
+dialog.defaultValue() // prompt's prefilled value
+await dialog.accept('typed into the prompt');
+await dialog.dismiss();
+```
+
+---
+
+## 30. SVG elements: charts, shapes and maps
+
+**Concept:** SVG lives in its own XML namespace, so an `<svg>` and its `<path>`, `<circle>` and `<rect>` children are not ordinary HTML elements. Playwright's CSS engine reaches them fine, but XPath needs `name()` and the DOM `className` property behaves differently.
+
+**Why:** Charts, interactive maps and icon systems are all SVG, and the usual reflex of grabbing an element by class quietly fails on them in ways that look like a broken selector rather than a namespace issue.
+
+**Q&A - why use this?**
+- **Q: Why does my XPath find nothing?** A: XPath is namespace-aware, so `//svg//path` matches nothing. Write `//*[name()='svg']//*[name()='path']` instead, which is what makes the map example work.
+- **Q: Do CSS selectors work on SVG?** A: Yes. `page.locator('#circle-blue')` and `page.locator('.bar')` are the easy path and should be your first choice. The `class` attribute is also readable with `getAttribute('class')`.
+- **Q: What's the gotcha?** A: An SVG element's `className` is an `SVGAnimatedString` object, not a string, so JavaScript that does `el.className.includes(...)` breaks. Read the attribute with `getAttribute('class')` instead.
+
+```mermaid
+flowchart TD
+    A[Target inside an SVG] --> B{Which engine?}
+    B -->|CSS, preferred| C["locator&#40;'#circle-blue'&#41;<br/>locator&#40;'.bar'&#41;"]
+    B -->|role, if exposed| D["getByRole&#40;'button', { name: /Q3 bar/ }&#41;"]
+    B -->|XPath| E["//*[name&#40;&#41;='svg']//*[name&#40;&#41;='path']<br/>name&#40;&#41; is required"]
+    C & D & E --> F["getAttribute&#40;'class'&#41;<br/>not .className"]
+```
+
+**tests/12_Handle_SVG/256_SVG_Advance_TC.spec.ts** - clicking shapes and reading chart bar data:
+
+```ts
+await page.locator('#circle-blue').click();
+expect(await page.locator('#shapes-output').innerText()).toContain('Blue circle');
+
+// SVG nodes can carry ARIA roles, and then the usual locators just work
+await page.getByRole('button', { name: /Q3 bar/ }).click();
+await page.getByRole('radio', { name: '4 stars' }).click();
+
+for (const bar of await page.locator('.bar').all()) {
+    console.log(await bar.getAttribute('data-quarter'), await bar.getAttribute('height'));
+}
+```
+
+**tests/12_Handle_SVG/257_SVG_Map_TC.spec.ts** - an interactive map, where each state is a `<path>` carrying an ISO code in its class:
+
+```ts
+const states = await page.locator(
+    "//div[@id='admin1_map_inner']//*[name()='svg']//*[name()='path' and contains(@class,'sm_state')]"
+).all();
+
+for (const state of states) {
+    const cls = await state.getAttribute('class');
+    if (cls?.includes('INUP')) {
+        await state.click();          // Uttar Pradesh
+    }
+}
+```
+
+**tests/12_Handle_SVG/258_SVG_Map_TC_Optimized.spec.ts** - the same idea with a plain CSS `path` selector, which is shorter but matches every path on the page.
+
+**The version to keep.** Scanning every path and testing the class in JavaScript is a loop over the whole map. Playwright can do the filtering in the selector, which is one round trip instead of forty:
+
+```ts
+await page.locator('path.sm_state[class*="INUP"]').click();
+```
+
+| Need | Write |
+|---|---|
+| Shape by id | `page.locator('#circle-blue')` |
+| All chart bars | `page.locator('.bar')` |
+| SVG with an ARIA role | `page.getByRole('button', { name: /Q3/ })` |
+| XPath into SVG | `//*[name()='svg']//*[name()='path']` |
+| Read the class | `getAttribute('class')`, never `.className` |
+| Filter by class in the selector | `path[class*="INUP"]` |
+
+Two habits worth carrying out of these files: `await` every `click()` inside a loop, an un-awaited click is a floating promise that may never run before the test ends; and keep `page.pause()` outside the loop, inside it the Inspector reopens on every iteration.
+
+---
+
+## 31. Shadow DOM: why it needs no special API
+
+**Concept:** A web component can attach a shadow root, a separate DOM tree hidden inside the element. Playwright's selector engine pierces **open** shadow roots automatically, so ordinary locators reach inside with no extra step.
+
+**Why:** Every other tool makes you hop into the shadow root by hand. Knowing Playwright does it for you saves people from writing `evaluate()` gymnastics that are not needed.
+
+**Q&A - why use this?**
+- **Q: Do I need a `shadowLocator()` the way iframes need `frameLocator()`?** A: No, and this is the key contrast with section 27. CSS and the `getBy*` locators cross open shadow boundaries on their own.
+- **Q: When does it stop working?** A: Two cases. `attachShadow({ mode: 'closed' })` is genuinely unreachable, and **XPath never pierces a shadow root**, so an XPath that works in the light DOM silently matches nothing inside a component.
+- **Q: What's the gotcha?** A: Nesting. A component inside another component is still reachable, but scoping your locator to the outer host makes the intent clear and avoids matching a sibling component with the same inner markup.
+
+```mermaid
+flowchart TD
+    A[page.locator / getByTestId] --> B{Boundary type}
+    B -->|iframe| C["needs frameLocator&#40;&#41;<br/>see section 27"]
+    B -->|open shadow root| D[pierced automatically<br/>CSS and getBy* just work]
+    B -->|closed shadow root| E[unreachable]
+    D --> F["XPath still fails here<br/>use CSS instead"]
+```
+
+**tests/13_Shadow_DOM/259_Shadow_DOM_TC.spec.ts** - scoping to the host, then reaching inside it:
+
+```ts
+const card = page.getByTestId('card-account-card');
+await card.locator('input[name="email"]').fill('student@thetestingacademy.com');
+await card.locator('input[name="password"]').fill('pw');
+await card.getByTestId('card-account-submit').click();
+
+await expect(page.getByTestId('card-account-status'))
+   .toContainText('student@thetestingacademy.com');
+```
+
+`card` is the custom element; `card.locator('input[name="email"]')` is inside its shadow root. No hop, no `evaluate`.
+
+The same file drives a counter component and a component nested inside another:
+
+```ts
+const cart = page.getByTestId('counter-cart');
+await cart.getByRole('button', { name: 'Increment' }).click();
+await expect(cart.getByTestId('counter-value')).toHaveText('5');
+
+// nested component, reached from the page root
+await page.getByTestId('card-inside-email').fill('pramod@thetestingacademy.com');
+await page.getByTestId('card-inside-submit').click();
+```
+
+| Boundary | Reach it with |
+|---|---|
+| iframe | `page.frameLocator('#id')` |
+| open shadow root | nothing special, locators pierce it |
+| closed shadow root | not reachable from a test |
+| shadow root, via XPath | does not work, switch to CSS |
+
+---
+
+## 32. File upload: `setInputFiles`
+
+**Concept:** `setInputFiles()` is the single API for uploads. Point it at paths on disk, or hand it objects that synthesize a file in memory, and it sets the `<input type="file">` directly.
+
+**Why:** The OS file picker is native chrome that no browser automation can drive. `setInputFiles` bypasses the dialog entirely by setting the input's files.
+
+**Q&A - why use this?**
+- **Q: Path or buffer?** A: Path for real fixtures you want in the repo (a genuine PDF, a real image). Buffer when the content should not land in git, or should vary per test.
+- **Q: Does the input need to be visible?** A: No. It works on hidden inputs, which is exactly what styled dropzones use. No `force: true`, no scrolling.
+- **Q: What's the gotcha?** A: The browser silently drops files the input's `accept` attribute rejects. `setInputFiles` still succeeds, so without an assertion the test passes while nothing was uploaded.
+
+```mermaid
+flowchart TD
+    Q{Have a real file?} -->|yes| A["setInputFiles&#40;path&#41;"]
+    Q -->|no, synthesize| B["setInputFiles&#40;{ name, mimeType, buffer }&#41;"]
+    A --> C[input.files is set,<br/>change event fires]
+    B --> C
+    C --> D{matches the<br/>accept attribute?}
+    D -->|yes| E[accepted]
+    D -->|no| F[silently dropped,<br/>no error thrown]
+```
+
+**tests/14_FileUpload/260_FileUpload_TC.spec.ts** - one real file, asserted:
+
+```ts
+const filePath = path.join(__dirname, 'testdata.txt');
+await page.locator("#file-upload").setInputFiles([filePath]);
+await page.getByRole("button", { name: "Upload" }).click();
+await expect(page.locator('#uploaded-files')).toContainText('testdata.txt');
+```
+
+**tests/14_FileUpload/262_Multiple_FileUpload_TC.spec.ts** - several files invented in memory:
+
+```ts
+await page.locator("div.pf-v6-c-multiple-file-upload input").setInputFiles([
+   { name: 'file1.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('image bytes') },
+   { name: 'file2.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('this is test') },
+]);
+```
+
+**tests/14_FileUpload/264_Mixed_FileUpload_TC.spec.ts** - three MIME types at once, read from disk:
+
+```ts
+const files = [
+   path.join(__dirname, 'sample.pdf'),
+   path.join(__dirname, 'sample.jpg'),
+   path.join(__dirname, 'sample.doc'),
+];
+await page.locator("div.pf-v6-c-multiple-file-upload input").setInputFiles(files);
+
+const uploadArea = page.locator('div.pf-v6-c-multiple-file-upload');
+await expect(uploadArea).toContainText('sample.pdf');
+await expect(uploadArea).toContainText('sample.doc');
+```
+
+**The `accept` trap, found while writing these.** That PatternFly dropzone declares:
+
+```
+image/jpeg,.jpg,.jpeg,application/msword,.doc,application/pdf,.pdf,image/png,.png
+```
+
+A `.docx` passed to `setInputFiles` is accepted by the call and then **discarded by the browser**, with the widget quietly reporting "2 of 2 files uploaded". `.doc` is on the list, `.docx` is not. Nothing throws. The `toContainText` assertions above are what turn that into a failing test instead of a false pass.
+
+**tests/14_FileUpload/265_FileUpload_OtherDir_TC.spec.ts** - fixtures kept in a shared folder rather than beside the spec:
+
+```ts
+const UPLOAD_DIR = path.join(__dirname, '..', '..', 'test-data', 'uploads');
+const files = ['sample.pdf', 'sample.jpg', 'sample.doc']
+   .map(name => path.join(UPLOAD_DIR, name));
+```
+
+Always build paths from `__dirname`, never a bare `'./test-data/...'`. A relative string resolves against the **working directory**, so it breaks the moment the suite is started from somewhere else.
+
+| Need | Write |
+|---|---|
+| One file from disk | `setInputFiles(path.join(__dirname, 'f.txt'))` |
+| Several files | pass an array |
+| No file on disk | `{ name, mimeType, buffer }` |
+| Clear the selection | `setInputFiles([])` |
+| Files elsewhere in the repo | `path.join(__dirname, '..', '..', 'test-data')` |
+
+---
+
+## 33. File download: subscribe before you trigger
+
+**Concept:** A download is an event, not a return value. You register a listener for `download`, then perform the click that fires it, then await the listener to get a `Download` object.
+
+**Why:** The event fires *during* the click. Code that clicks first and starts listening afterwards is racing a thing that has already happened, and loses.
+
+**Q&A - why use this?**
+- **Q: Why not just `await click()` then `await waitForEvent('download')`?** A: Because `waitForEvent` never replays history. If the event fired before you subscribed, it is gone and you wait until the timeout.
+- **Q: What does `Promise.all` actually buy me?** A: Ordering, not parallelism. Array elements evaluate top to bottom, so `waitForEvent` registers the listener before `click()` is called.
+- **Q: What's the gotcha?** A: Do not `await` the `waitForEvent` on its own line before the click. That blocks immediately, nothing has clicked yet, and the test deadlocks until it times out.
+
+```mermaid
+sequenceDiagram
+    participant T as Test
+    participant P as Page
+    T->>P: waitForEvent&#40;'download'&#41; registers listener
+    T->>P: click&#40;&#41;
+    P-->>T: download event fires, listener catches it
+    T->>T: await the promise, get Download
+    Note over T,P: Click first and the event fires<br/>with nobody listening, then it is lost
+```
+
+**tests/15_File_Download/266_FileDownload_TC.spec.ts**:
+
+```ts
+const [staticDownload] = await Promise.all([
+   page.waitForEvent('download'),                  // ① registers first
+   page.getByTestId('download-static').click()     // ② fires the event
+]);
+
+await staticDownload.saveAs(path.join(__dirname, 'out', staticDownload.suggestedFilename()));
+```
+
+The form Playwright's docs now prefer says the same thing more plainly, and the missing `await` on the first line is the whole trick:
+
+```ts
+const downloadPromise = page.waitForEvent('download');   // register, do NOT await
+await page.getByTestId('download-static').click();       // trigger
+const download = await downloadPromise;                  // now collect
+
+expect(download.suggestedFilename()).toBe('sample-download.txt');
+await download.saveAs(path.join(__dirname, 'out', download.suggestedFilename()));
+```
+
+**Measured, not assumed.** Against the TTA download widget: listener-first caught the file in **252ms**. Clicking and then subscribing 3 seconds later **missed it entirely**, the event was never replayed. Subscribing immediately after the click happened to work, which is worse than failing, it is the kind of race that passes locally and fails on a slower CI machine.
+
+This is the same rule as the `dialog` listener in section 29. One sentence covers both: **subscribe before you trigger**. It applies to `download`, `dialog`, `popup`, `filechooser`, `request` and `response`.
+
+| Need | API |
+|---|---|
+| The suggested name | `download.suggestedFilename()` |
+| Save it somewhere | `await download.saveAs(absolutePath)` |
+| The temp path | `await download.path()` |
+| Why it failed | `await download.failure()` |
+| Allow downloads | `acceptDownloads: true`, already the default |
+
+Save paths have the same rule as upload paths: build them from `__dirname`. A bare `'./out/' + name` resolves against the working directory and drops the file wherever the runner happened to start.
+
+---
+
+## 34. Locator cheat sheet
 
 ```ts
 page.getByRole('button', { name: 'Submit' })   // preferred, accessibility based
@@ -1436,7 +2030,7 @@ Order of preference: role -> label -> placeholder -> text -> testid -> CSS/XPath
 
 ---
 
-## 27. Common assertions
+## 35. Common assertions
 
 ```ts
 await expect(page).toHaveTitle(/Playwright/);
@@ -1453,7 +2047,7 @@ All `expect` calls auto-wait, so you rarely need `waitForTimeout`.
 
 ---
 
-## 28. Troubleshooting
+## 36. Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
@@ -1466,7 +2060,7 @@ All `expect` calls auto-wait, so you rarely need `waitForTimeout`.
 
 ---
 
-## 29. Useful links
+## 37. Useful links
 
 - Playwright docs: https://playwright.dev/docs/intro
 - Codegen guide: https://playwright.dev/docs/codegen
